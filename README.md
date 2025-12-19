@@ -6,6 +6,6 @@ Simmons Univeristy - Graduating May 2027
 
 BS in Data Science & Analytics 
 
-## Project 
-[Check out my blog post!](https://naoisecarolan.github.io/dsPortfolio/2025/12/05/pdacPredictors)
+## Projects
 [Exploring PDAC Predictors](https://naoisecarolan.github.io/dsPortfolio/project/PDACPredictors.html)
+[Data Storytelling Contest: Predicting Cardiovascular Disease](https://naoisecarolan.github.io/dsPortfolio/finalProject/FinalProject.html)
