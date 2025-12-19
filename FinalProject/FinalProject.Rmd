@@ -1,0 +1,177 @@
+---
+title: "Understanding Heart Disease: The 5 Most Important Features in Prediction"
+format: closeread-html
+author: "Naoise Carolan"
+date: "December 14, 2025"
+output: 
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    code_download: true
+---
+
+### Introduction 
+  As the leading cause of death globally, heart disease is a topic of great importance in medical research with billions of dollars invested every year. Understanding the development and progression of heart disease can help scientists and medical professionals develop more effective prevention methods, screening, and treatment which could save millions of lives in the United States alone. For this project, I chose to use a dataset sourced on Kaggle (https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction) that contains data from 5 different hospitals in the US and Europe with 11 predictors of heart disease. In order to identify which factors are the most critical in the detection of heart disease, I decided to train a random forest model to predict whether or not a patient had heart disease using these features and then found the 5 most important variables for heart disease prediction from this data. Models like this can be used in medical settings to streamline monitoring and detection of cardiovascular disease, potentially leading to better outcomes for patients at high risk for developing heart disease.
+  
+```{r, warning = FALSE, message = FALSE}
+#load necessary packages
+library(tidyverse)
+library(randomForest)
+library(caret)
+library(pROC)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(mdsr)
+#add quarto 
+#quarto add qmd-lab/closeread
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+#read in data 
+library(readr)
+heart <- read_csv("heart.csv")
+```
+
+### Part 1: Data Wrangling
+  This dataset did not require an extensive amount of data wrangling to be usable for the purposes of this project. In order to work with this dataset I got rid of missing values using 'na.omit'. I then made the HeartDisease variable a factor with 'as.factor' and added levels of "noHeartDisease" or "heartDisease", which made classification possible later on.
+
+```{r}
+#add levels to data 
+heartClean = na.omit(heart)
+heartClean$HeartDisease = as.factor(heartClean$HeartDisease)
+levels(heartClean$HeartDisease) = c("noHeartDisease", "heartDisease")
+```
+
+### Part 2: Create Random Forest Model
+  In order to find the 5 most important factors in predicting heart disease, I decided to use a random forest model. To create the random forest model I first split my data into 80% training and 20% testing data.
+```{r}
+#split data into test and train
+set.seed(876)
+train.index = createDataPartition(heartClean$HeartDisease, p = 0.8, list = F)
+train = heartClean[train.index,]
+test = heartClean[-train.index,]
+```
+  A random forest model was then fit to predict heart disease using all of the features in the dataset. For this model, importance is set to true so that we can find variable importance measures later to determine the most important variables.
+```{r}
+#fit model using all features
+set.seed(876)
+rfModel = randomForest(HeartDisease ~., data = train, importance = T)
+rfModel
+```
+  The initial random forest model uses 500 trees and 3 variables at each split. The out-of-bag (OOB) error rate is 14.42%, this is fairly accurate, but hyperparameter tuning is important in order to improve the model. I chose to hyperparameter tune by finding the optimal numbers of trees to use as well as the optimal number of features at each split. 
+```{r}
+#pick number of trees
+set.seed(876)
+oob.error.data = data.frame(
+  Trees = rep(1:nrow(rfModel$err.rate), times = 3),
+  Type = rep(c("OOB", "Heart Disease", "No Heart Disease"), each = nrow(rfModel$err.rate)),
+  Error = c(rfModel$err.rate[,"OOB"],
+            rfModel$err.rate[,"noHeartDisease"],
+            rfModel$err.rate[,"heartDisease"]))
+```
+  
+```{r}
+#plot oob.error.data 
+ggplot(data = oob.error.data, aes(x = Trees, y = Error)) + 
+  geom_line(aes(color = Type)) + theme_bw()
+```
+  
+The plot of my oob.error.data continues to fluctuate in error until around 475 trees, which shows that the ideal number of trees for this model is around 470-480.
+```{r}
+#tune number of features at splits 
+set.seed(876)
+tune.grid = expand.grid(mtry = 1:10)
+ctrl = trainControl(method = "oob")
+rfTuned = train(HeartDisease ~.,
+                data = train, 
+                method = "rf",
+                trControl = ctrl,
+                tuneGrid = tune.grid,
+                ntree = 480)
+rfTuned
+```
+  
+After fitting the model using mtry values 1-10, I found that the number of features at each split with the highest accuracy is 2 at 87.07% accuracy.
+```{r, warning=FALSE}
+#plot mtry 
+ggplot(data = rfTuned, aes(x = "Predictors", y = "Accuracy")) + 
+  scale_x_continuous(breaks = seq(1,10, by = 1)) +
+  geom_line(color = "purple") + theme_bw()
+```
+
+This plot confirms that 2 is the ideal number of features at each split for this model.
+
+After hyperparameter tuning, I refit my random forest model using 480 trees and 2 features at each split. Hyperparameter tuning decreased the OOB error rate for the model from 14.42% to 13.47%, although this is not a large decrease in OOB, the final model is more accurate than the initial model.
+```{r}
+#refit using tuned hyperparameters
+set.seed(876)
+rfModelFinal = randomForest(HeartDisease ~., data = train, 
+                            mtry = rfTuned$finalModel$tuneValue$mtry,
+                            ntree = 480, importance = T)
+rfModelFinal
+```
+
+I then evaluated my final model by creating a ROC curve and calculating the AUC. The ROC curve shows that the model has high sensitivity and specificity with an AUC of 0.9416. This model is much more accurate than chance alone, showing strong reliability.
+```{r, warning=FALSE, message=FALSE}
+#model evaluation
+set.seed(876)
+#calculate predicted values
+predictTest = predict(rfModelFinal, newdata = test, type = "response")
+#calculated predicted probabilities
+predictProbTest = predict(rfModelFinal, newdata = test, type = "prob")
+#create ROC object and auc curve
+ROC = roc(test$HeartDisease~predictProbTest[,2], plot = T, legacy.axes = T)
+auc(ROC)
+```
+
+Now, to identify which 5 variables are the most important in predicting heart disease for this model I created an importance matrix for the final model. This shows the mean decrease in accuracy of the model if the feature is permuted and the mean decrease in Gini impurity if the feature is used. To make the importance matrix easier to interpret I created a plot to visualize the results.
+```{r}
+#get VIM
+importanceMatrix = rfModelFinal$importance
+importanceMatrix
+```
+
+```{r}
+#create VIM plot for final model
+impDf = as.data.frame(importanceMatrix)
+impDf = cbind(Feature = rownames(impDf), impDf)
+rownames(impDf) = NULL
+impDf$Feature = factor(impDf$Feature, 
+                       levels = impDf$Feature[order(impDf$MeanDecreaseAccuracy)])
+
+ggplot(impDf, aes(x = Feature, y = MeanDecreaseAccuracy)) + 
+  labs(title = "Feature Importance (Mean Decrease in Accuracy)",
+       x = "Feature", y = "Mean Decrease Accuracy") + 
+  coord_flip() + 
+  geom_col(fill = "deeppink", color = "black") + theme_bw()
+```
+
+The plot shows clearly that ST_slope, ExerciseAngina, ChestPainType, Oldpeak, and Cholesterol are the 5 most critical factors to predict heart disease for this model, with ST_slope as the single most important factor.
+
+### Part 3: Create Decision Tree 
+To ensure that I was using the most accurate model I could create to predict heart disease, I decided to also create a decision tree that predicted heart disease using all features in the dataset. Once again, the data was split into 80% training data and 20% testing data. 
+
+```{r}
+#split data for decision tree 
+set.seed(876)
+train.indexDt = createDataPartition(heartClean$HeartDisease, p = 0.8, list = F)
+trainDt = heartClean[train.indexDt,]
+testDt = heartClean[-train.indexDt,]
+```
+
+```{r}
+#create decision tree 
+set.seed(876)
+train.kfold = trainControl(method = "cv", number = 10, savePredictions = T,
+                           classProbs = T)
+tree.kfold = train(HeartDisease ~., data = trainDt, method = "rpart",
+                   trControl = train.kfold, tuneGrid = data.frame(cp = 0.01))
+tree.kfold
+```
+
+The decision tree model shows an accuracy of 83.11% and a Kappa of 0.6561. Although 83.11% is a good accuracy and 0.6561 is a moderate Kappa, the random forest model had better accuracy at 87.07% and a substantial Kappa of 0.7251 making the random forest model the better model for heart disease prediction in this case. 
+
+### Conclusion
+By answering my research question I was able to identify ST_slope, ExerciseAngina, ChestPainType, Oldpeak, and Cholesterol as the 5 most important variables in the prediction of heart disease using this dataset. It is important to understand that although these factors were identified as the most important for this model, that does not necessarily mean that these are the most important factors for predicting heart disease in general. Both the random forest and decision tree models were able to achieve good accuracy, with the random forest ultimately having higher accuracy and Kappa levels, making it the best choice for use.
