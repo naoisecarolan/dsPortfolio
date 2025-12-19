@@ -8,4 +8,4 @@ BS in Data Science & Analytics
 
 ## Projects
 [Exploring PDAC Predictors](https://naoisecarolan.github.io/dsPortfolio/project/PDACPredictors.html)
-[Data Storytelling Contest: Predicting Cardiovascular Disease](https://naoisecarolan.github.io/dsPortfolio/finalProject/FinalProject.html)
+[Data Storytelling Contest: Predicting Cardiovascular Disease](https://naoisecarolan.github.io/dsPortfolio/FinalProject/FinalProject.html)
